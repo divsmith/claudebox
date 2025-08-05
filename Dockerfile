@@ -3,7 +3,7 @@ FROM node:lts
 
 # Update package list and install Node.js along with npm
 RUN apt update && \
-    apt install -y curl vim
+    apt install -y curl vim python3 python3-pip
 
 RUN npm install -g @qwen-code/qwen-code@latest
 
