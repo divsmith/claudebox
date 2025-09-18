@@ -6,6 +6,11 @@ on:
     - cron: '0 */6 * * *'
   workflow_dispatch:
     # Allow manual triggering
+  push:
+    branches:
+      - main
+    paths:
+      - 'Dockerfile'
 
 jobs:
   check-for-updates:
@@ -13,6 +18,7 @@ jobs:
     outputs:
       has_new_version: ${{ steps.check_version.outputs.has_new_version }}
       new_version: ${{ steps.check_version.outputs.new_version }}
+      triggered_by_push: ${{ github.event_name == 'push' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -20,27 +26,35 @@ jobs:
       - name: Check for @qwen-code/qwen-code updates
         id: check_version
         run: |
-          # Get the latest version from npm registry
-          LATEST_VERSION=$(curl -s https://registry.npmjs.org/@qwen-code/qwen-code | jq -r '.["dist-tags"].latest')
-          
-          # Get the currently installed version in Dockerfile
-          CURRENT_VERSION=$(grep -o '@qwen-code/qwen-code@[^ ]*' Dockerfile | cut -d'@' -f3)
-          
-          echo "Latest version: $LATEST_VERSION"
-          echo "Current version in Dockerfile: $CURRENT_VERSION"
-          
-          if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
-            echo "New version detected: $LATEST_VERSION"
+          # If triggered by push, skip version check
+          if [ "${{ github.event_name }}" = "push" ]; then
+            echo "Triggered by push, skipping version check"
             echo "has_new_version=true" >> $GITHUB_OUTPUT
-            echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+            echo "new_version=push-triggered" >> $GITHUB_OUTPUT
           else
-            echo "No new version detected"
-            echo "has_new_version=false" >> $GITHUB_OUTPUT
+            # Get the latest version from npm registry
+            LATEST_VERSION=$(curl -s https://registry.npmjs.org/@qwen-code/qwen-code | jq -r '.["dist-tags"].latest')
+            
+            # Get the currently installed version in Dockerfile
+            CURRENT_VERSION=$(grep -o '@qwen-code/qwen-code@[^ ]*' Dockerfile | cut -d'@' -f3)
+            
+            echo "Latest version: $LATEST_VERSION"
+            echo "Current version in Dockerfile: $CURRENT_VERSION"
+            
+            if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
+              echo "New version detected: $LATEST_VERSION"
+              echo "has_new_version=true" >> $GITHUB_OUTPUT
+              echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+            else
+              echo "No new version detected"
+              echo "has_new_version=false" >> $GITHUB_OUTPUT
+            fi
           fi
 
   build-and-publish:
     needs: check-for-updates
-    if: needs.check-for-updates.outputs.has_new_version == 'true'
+    # Run if new version detected OR if triggered by push
+    if: needs.check-for-updates.outputs.has_new_version == 'true' || needs.check-for-updates.outputs.triggered_by_push == 'true'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -56,9 +70,10 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Dockerfile with new version
+      - name: Update Dockerfile with new version (only for scheduled runs)
+        if: github.event_name != 'push'
         run: |
-          sed -i "s/@qwen-code\/qwen-code@.*/@qwen-code\/qwen-code@${{ needs.check-for-updates.outputs.new_version }}/" Dockerfile
+          sed -i "s/@qwen-code\\/qwen-code@.*/@qwen-code\\/qwen-code@${{ needs.check-for-updates.outputs.new_version }}/" Dockerfile
 
       - name: Extract metadata for Docker
         id: meta
@@ -79,7 +94,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Commit and push Dockerfile update
+      - name: Commit and push Dockerfile update (only for scheduled runs)
+        if: github.event_name != 'push'
         run: |
           git config --local user.email "action@github.com"
           git config --local user.name "GitHub Action"
