@@ -21,3 +21,20 @@ docker run -d --rm --name qwenbox --env-file .env -v /host/volume/directory:/app
 ```bash
 docker exec -it qwenbox /bin/sh
 ```
+
+## GitHub Actions Automation
+
+This repository includes a GitHub Actions workflow that automatically monitors the `@qwen-code/qwen-code` npm package for updates and rebuilds the Docker image when updates are detected.
+
+The workflow:
+1. Runs every 6 hours or can be triggered manually
+2. Checks for new versions of `@qwen-code/qwen-code` on npm
+3. If a new version is detected, it:
+   - Updates the Dockerfile with the new version
+   - Builds and publishes the Docker image to GitHub Container Registry (GHCR)
+   - Commits and pushes the updated Dockerfile to the repository
+
+Images are published to:
+- `ghcr.io/divsmith/qwenbox:latest`
+- `ghcr.io/divsmith/qwenbox:VERSION`
+- `ghcr.io/divsmith/qwenbox:COMMIT_SHA`
