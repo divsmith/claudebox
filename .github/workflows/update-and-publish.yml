@@ -11,6 +11,7 @@ on:
       - main
     paths:
       - 'Dockerfile'
+      - '.github/workflows/update-and-publish.yml'
 
 jobs:
   check-for-updates:
