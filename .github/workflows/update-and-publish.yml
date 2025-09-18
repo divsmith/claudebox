@@ -98,8 +98,8 @@ jobs:
       - name: Commit and push Dockerfile update (only for scheduled runs)
         if: github.event_name != 'push'
         run: |
-          git config --local user.email "action@github.com"
-          git config --local user.name "GitHub Action"
+          git config --local user.email "parker@parkersmith.us"
+          git config --local user.name "Parker Smith"
           git add Dockerfile
           git commit -m "Update qwen-code to version ${{ needs.check-for-updates.outputs.new_version }}"
           git push
