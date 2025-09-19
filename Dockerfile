@@ -5,7 +5,7 @@ FROM node:lts
 RUN apt update && \
     apt install -y curl vim python3 python3-pip python3-venv
 
-RUN npm install -g @qwen-code/qwen-code@0.0.11
+RUN npm install -g @qwen-code/qwen-code@0.0.12
 
 # Install uv Python package manager
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
