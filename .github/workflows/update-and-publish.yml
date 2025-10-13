@@ -24,7 +24,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check for @qwen-code/qwen-code updates
+      - name: Check for @qwen-code/qwen-code and @anthropic-ai/claude-code updates
         id: check_version
         run: |
           # If triggered by push, skip version check
@@ -32,22 +32,43 @@ jobs:
             echo "Triggered by push, skipping version check"
             echo "has_new_version=true" >> $GITHUB_OUTPUT
             echo "new_version=push-triggered" >> $GITHUB_OUTPUT
+            echo "updated_packages=push-triggered" >> $GITHUB_OUTPUT
           else
-            # Get the latest version from npm registry
-            LATEST_VERSION=$(curl -s https://registry.npmjs.org/@qwen-code/qwen-code | jq -r '.["dist-tags"].latest')
-            
-            # Get the currently installed version in Dockerfile
-            CURRENT_VERSION=$(grep -o '@qwen-code/qwen-code@[^ ]*' Dockerfile | cut -d'@' -f3)
-            
-            echo "Latest version: $LATEST_VERSION"
-            echo "Current version in Dockerfile: $CURRENT_VERSION"
-            
-            if [ "$LATEST_VERSION" != "$CURRENT_VERSION" ]; then
-              echo "New version detected: $LATEST_VERSION"
+            # Check @qwen-code/qwen-code updates
+            QWEN_LATEST_VERSION=$(curl -s https://registry.npmjs.org/@qwen-code/qwen-code | jq -r '.["dist-tags"].latest')
+            QWEN_CURRENT_VERSION=$(grep -o '@qwen-code/qwen-code@[^ ]*' Dockerfile | cut -d'@' -f3)
+
+            # Check @anthropic-ai/claude-code updates
+            CLAUDE_LATEST_VERSION=$(curl -s https://registry.npmjs.org/@anthropic-ai/claude-code | jq -r '.["dist-tags"].latest')
+            CLAUDE_CURRENT_VERSION=$(grep -o '@anthropic-ai/claude-code@[^ ]*' Dockerfile | cut -d'@' -f3)
+
+            echo "Qwen Code - Latest: $QWEN_LATEST_VERSION, Current: $QWEN_CURRENT_VERSION"
+            echo "Claude Code - Latest: $CLAUDE_LATEST_VERSION, Current: $CLAUDE_CURRENT_VERSION"
+
+            UPDATED_PACKAGES=""
+            NEW_VERSION=""
+
+            if [ "$QWEN_LATEST_VERSION" != "$QWEN_CURRENT_VERSION" ]; then
+              echo "New qwen-code version detected: $QWEN_LATEST_VERSION"
+              UPDATED_PACKAGES="$UPDATED_PACKAGES qwen-code:$QWEN_LATEST_VERSION"
+              NEW_VERSION="$QWEN_LATEST_VERSION"
+            fi
+
+            if [ "$CLAUDE_LATEST_VERSION" != "$CLAUDE_CURRENT_VERSION" ]; then
+              echo "New claude-code version detected: $CLAUDE_LATEST_VERSION"
+              UPDATED_PACKAGES="$UPDATED_PACKAGES claude-code:$CLAUDE_LATEST_VERSION"
+              if [ -z "$NEW_VERSION" ]; then
+                NEW_VERSION="$CLAUDE_LATEST_VERSION"
+              fi
+            fi
+
+            if [ -n "$UPDATED_PACKAGES" ]; then
+              echo "Updates detected for:$UPDATED_PACKAGES"
               echo "has_new_version=true" >> $GITHUB_OUTPUT
-              echo "new_version=$LATEST_VERSION" >> $GITHUB_OUTPUT
+              echo "new_version=$NEW_VERSION" >> $GITHUB_OUTPUT
+              echo "updated_packages=$UPDATED_PACKAGES" >> $GITHUB_OUTPUT
             else
-              echo "No new version detected"
+              echo "No new versions detected"
               echo "has_new_version=false" >> $GITHUB_OUTPUT
             fi
           fi
@@ -71,10 +92,25 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Update Dockerfile with new version (only for scheduled runs)
+      - name: Update Dockerfile with new versions (only for scheduled runs)
         if: github.event_name != 'push'
         run: |
-          sed -i "s/@qwen-code\\/qwen-code@.*/@qwen-code\\/qwen-code@${{ needs.check-for-updates.outputs.new_version }}/" Dockerfile
+          UPDATED_PACKAGES="${{ needs.check-for-updates.outputs.updated_packages }}"
+          echo "Updating packages: $UPDATED_PACKAGES"
+
+          # Update qwen-code if needed
+          if [[ "$UPDATED_PACKAGES" == *"qwen-code:"* ]]; then
+            QWEN_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'qwen-code:[^ ]*' | cut -d':' -f2)
+            echo "Updating qwen-code to version: $QWEN_VERSION"
+            sed -i "s/@qwen-code\/qwen-code@[^ ]*/@qwen-code\/qwen-code@$QWEN_VERSION/" Dockerfile
+          fi
+
+          # Update claude-code if needed
+          if [[ "$UPDATED_PACKAGES" == *"claude-code:"* ]]; then
+            CLAUDE_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'claude-code:[^ ]*' | cut -d':' -f2)
+            echo "Updating claude-code to version: $CLAUDE_VERSION"
+            sed -i "s/@anthropic-ai\/claude-code@[^ ]*/@anthropic-ai\/claude-code@$CLAUDE_VERSION/" Dockerfile
+          fi
 
       - name: Extract metadata for Docker
         id: meta
@@ -98,8 +134,21 @@ jobs:
       - name: Commit and push Dockerfile update (only for scheduled runs)
         if: github.event_name != 'push'
         run: |
+          UPDATED_PACKAGES="${{ needs.check-for-updates.outputs.updated_packages }}"
+          COMMIT_MSG="Update dependencies"
+
+          if [[ "$UPDATED_PACKAGES" == *"qwen-code:"* ]]; then
+            QWEN_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'qwen-code:[^ ]*' | cut -d':' -f2)
+            COMMIT_MSG="$COMMIT_MSG - qwen-code to v$QWEN_VERSION"
+          fi
+
+          if [[ "$UPDATED_PACKAGES" == *"claude-code:"* ]]; then
+            CLAUDE_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'claude-code:[^ ]*' | cut -d':' -f2)
+            COMMIT_MSG="$COMMIT_MSG - claude-code to v$CLAUDE_VERSION"
+          fi
+
           git config --local user.email "parker@parkersmith.us"
           git config --local user.name "Parker Smith"
           git add Dockerfile
-          git commit -m "Update qwen-code to version ${{ needs.check-for-updates.outputs.new_version }}"
+          git commit -m "$COMMIT_MSG"
           git push

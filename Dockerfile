@@ -5,7 +5,7 @@ FROM node:lts
 RUN apt update && \
     apt install -y curl vim python3 python3-pip python3-venv
 
-RUN npm install -g @qwen-code/qwen-code@0.0.14
+RUN npm install -g @qwen-code/qwen-code@0.0.14 @anthropic-ai/claude-code@2.0.14
 
 # Install uv Python package manager
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
@@ -15,6 +15,9 @@ RUN curl -LO https://go.dev/dl/go1.24.7.linux-amd64.tar.gz && \
     tar -C /usr/local -xzf go1.24.7.linux-amd64.tar.gz && \
     rm go1.24.7.linux-amd64.tar.gz && \
     ln -sf /usr/local/go/bin/go /usr/bin/go
+
+# Set PATH environment variable for all tools
+ENV PATH="$HOME/.cargo/bin:/usr/local/go/bin:$PATH"
 
 
 # Set the working directory inside the container
