@@ -16,6 +16,10 @@ RUN curl -LO https://go.dev/dl/go1.24.7.linux-amd64.tar.gz && \
     rm go1.24.7.linux-amd64.tar.gz && \
     ln -sf /usr/local/go/bin/go /usr/bin/go
 
+# Install Rust
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
+    chmod +x /root/.cargo/env
+
 # Create a non-root user
 RUN useradd -m -s /bin/bash qwen && \
     usermod -aG sudo qwen && \
@@ -24,8 +28,17 @@ RUN useradd -m -s /bin/bash qwen && \
 # Make /root readable for inspection (but not writable)
 RUN chmod 755 /root
 
+# Copy Rust installation to qwen user's home directory
+RUN cp -r /root/.cargo /home/qwen/ && \
+    cp -r /root/.rustup /home/qwen/ && \
+    chown -R qwen:qwen /home/qwen/.cargo /home/qwen/.rustup
+
+# Copy uv installation to qwen user's home directory
+RUN cp -r /root/.local /home/qwen/ && \
+    chown -R qwen:qwen /home/qwen/.local
+
 # Set PATH environment variable for all tools
-ENV PATH="$HOME/.cargo/bin:/usr/local/go/bin:$PATH"
+ENV PATH="$HOME/.cargo/bin:/usr/local/go/bin:$HOME/.local/bin:$PATH"
 
 # Set the working directory inside the container
 WORKDIR /app
