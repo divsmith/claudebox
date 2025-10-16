@@ -11,10 +11,25 @@ RUN npm install -g @qwen-code/qwen-code@0.0.14 @anthropic-ai/claude-code@2.0.14
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 
 # Install Go
-RUN curl -LO https://go.dev/dl/go1.24.7.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.24.7.linux-amd64.tar.gz && \
-    rm go1.24.7.linux-amd64.tar.gz && \
+RUN GO_VERSION="1.24.7" && \
+    ARCH=$(dpkg --print-architecture) && \
+    case $ARCH in \
+        amd64) GO_ARCH="amd64" ;; \
+        arm64) GO_ARCH="arm64" ;; \
+        armhf) GO_ARCH="armv6l" ;; \
+        *) echo "Unsupported architecture: $ARCH" && exit 1 ;; \
+    esac && \
+    curl -LO "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" && \
+    tar -C /usr/local -xzf "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" && \
+    rm "go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" && \
     ln -sf /usr/local/go/bin/go /usr/bin/go
+
+# Install beads tool
+RUN git clone https://github.com/steveyegge/beads /tmp/beads && \
+    cd /tmp/beads && \
+    go build -o bd ./cmd/bd && \
+    mv bd /usr/local/bin/ && \
+    rm -rf /tmp/beads
 
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
