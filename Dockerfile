@@ -16,6 +16,9 @@ RUN curl -LO https://go.dev/dl/go1.24.7.linux-amd64.tar.gz && \
     rm go1.24.7.linux-amd64.tar.gz && \
     ln -sf /usr/local/go/bin/go /usr/bin/go
 
+# Install Beads
+RUN go install github.com/steveyegge/beads/cmd/bd@latest
+
 # Install Rust
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
     chmod +x /root/.cargo/env
@@ -38,7 +41,10 @@ RUN cp -r /root/.local /home/qwen/ && \
     chown -R qwen:qwen /home/qwen/.local
 
 # Set PATH environment variable for all tools
-ENV PATH="$HOME/.cargo/bin:/usr/local/go/bin:$HOME/.local/bin:$PATH"
+ENV PATH="$HOME/.cargo/bin:/usr/local/go/bin:$HOME/.local/bin:$HOME/go/bin:$PATH"
+
+# Set Beads environment variables
+ENV BD_ACTOR="parker"
 
 # Set the working directory inside the container
 WORKDIR /app
