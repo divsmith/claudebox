@@ -1,4 +1,4 @@
-name: Monitor Qwen Code Updates and Publish Docker Image
+name: Monitor Claude Code Updates and Publish Docker Image
 
 on:
   schedule:
@@ -24,7 +24,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Check for @qwen-code/qwen-code and @anthropic-ai/claude-code updates
+      - name: Check for @anthropic-ai/claude-code updates
         id: check_version
         run: |
           # If triggered by push, skip version check
@@ -34,32 +34,19 @@ jobs:
             echo "new_version=push-triggered" >> $GITHUB_OUTPUT
             echo "updated_packages=push-triggered" >> $GITHUB_OUTPUT
           else
-            # Check @qwen-code/qwen-code updates
-            QWEN_LATEST_VERSION=$(curl -s https://registry.npmjs.org/@qwen-code/qwen-code | jq -r '.["dist-tags"].latest')
-            QWEN_CURRENT_VERSION=$(grep -o '@qwen-code/qwen-code@[^ ]*' Dockerfile | cut -d'@' -f3)
-
             # Check @anthropic-ai/claude-code updates
             CLAUDE_LATEST_VERSION=$(curl -s https://registry.npmjs.org/@anthropic-ai/claude-code | jq -r '.["dist-tags"].latest')
             CLAUDE_CURRENT_VERSION=$(grep -o '@anthropic-ai/claude-code@[^ ]*' Dockerfile | cut -d'@' -f3)
 
-            echo "Qwen Code - Latest: $QWEN_LATEST_VERSION, Current: $QWEN_CURRENT_VERSION"
             echo "Claude Code - Latest: $CLAUDE_LATEST_VERSION, Current: $CLAUDE_CURRENT_VERSION"
 
             UPDATED_PACKAGES=""
             NEW_VERSION=""
 
-            if [ "$QWEN_LATEST_VERSION" != "$QWEN_CURRENT_VERSION" ]; then
-              echo "New qwen-code version detected: $QWEN_LATEST_VERSION"
-              UPDATED_PACKAGES="$UPDATED_PACKAGES qwen-code:$QWEN_LATEST_VERSION"
-              NEW_VERSION="$QWEN_LATEST_VERSION"
-            fi
-
             if [ "$CLAUDE_LATEST_VERSION" != "$CLAUDE_CURRENT_VERSION" ]; then
               echo "New claude-code version detected: $CLAUDE_LATEST_VERSION"
               UPDATED_PACKAGES="$UPDATED_PACKAGES claude-code:$CLAUDE_LATEST_VERSION"
-              if [ -z "$NEW_VERSION" ]; then
-                NEW_VERSION="$CLAUDE_LATEST_VERSION"
-              fi
+              NEW_VERSION="$CLAUDE_LATEST_VERSION"
             fi
 
             if [ -n "$UPDATED_PACKAGES" ]; then
@@ -98,13 +85,6 @@ jobs:
           UPDATED_PACKAGES="${{ needs.check-for-updates.outputs.updated_packages }}"
           echo "Updating packages: $UPDATED_PACKAGES"
 
-          # Update qwen-code if needed
-          if [[ "$UPDATED_PACKAGES" == *"qwen-code:"* ]]; then
-            QWEN_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'qwen-code:[^ ]*' | cut -d':' -f2)
-            echo "Updating qwen-code to version: $QWEN_VERSION"
-            sed -i "s/@qwen-code\/qwen-code@[^ ]*/@qwen-code\/qwen-code@$QWEN_VERSION/" Dockerfile
-          fi
-
           # Update claude-code if needed
           if [[ "$UPDATED_PACKAGES" == *"claude-code:"* ]]; then
             CLAUDE_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'claude-code:[^ ]*' | cut -d':' -f2)
@@ -126,7 +106,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: .
-          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          platforms: linux/amd64,linux/arm64
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
@@ -136,11 +116,6 @@ jobs:
         run: |
           UPDATED_PACKAGES="${{ needs.check-for-updates.outputs.updated_packages }}"
           COMMIT_MSG="Update dependencies"
-
-          if [[ "$UPDATED_PACKAGES" == *"qwen-code:"* ]]; then
-            QWEN_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'qwen-code:[^ ]*' | cut -d':' -f2)
-            COMMIT_MSG="$COMMIT_MSG - qwen-code to v$QWEN_VERSION"
-          fi
 
           if [[ "$UPDATED_PACKAGES" == *"claude-code:"* ]]; then
             CLAUDE_VERSION=$(echo "$UPDATED_PACKAGES" | grep -o 'claude-code:[^ ]*' | cut -d':' -f2)

@@ -1,50 +1,68 @@
-# Use the latest Node LTS version as the base image
-FROM node:lts
+# Use Node.js Alpine LTS - much smaller base image
+FROM node:lts-alpine
 
-# Update package list and install Node.js along with npm
-RUN apt update && \
-    apt install -y curl vim python3 python3-pip python3-venv sudo
+# Install build dependencies and cleanup in single layer
+RUN apk add --no-cache \
+    curl \
+    vim \
+    python3 \
+    py3-pip \
+    sudo \
+    bash \
+    && rm -rf /var/cache/apk/*
 
-RUN npm install -g @qwen-code/qwen-code@0.0.14 @anthropic-ai/claude-code@2.0.14
+# Install npm packages globally
+RUN npm install -g @anthropic-ai/claude-code@2.0.14 \
+    && npm cache clean --force
 
 # Install uv Python package manager
-RUN curl -LsSf https://astral.sh/uv/install.sh | sh
+RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
+    && rm -rf /tmp/*
 
-# Install Go
-RUN curl -LO https://go.dev/dl/go1.24.7.linux-amd64.tar.gz && \
-    tar -C /usr/local -xzf go1.24.7.linux-amd64.tar.gz && \
-    rm go1.24.7.linux-amd64.tar.gz && \
-    ln -sf /usr/local/go/bin/go /usr/bin/go
+# Install Go - multi-platform support for amd64 and arm64
+ARG TARGETPLATFORM
+RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
+        GO_ARCH="arm64"; \
+    else \
+        GO_ARCH="amd64"; \
+    fi \
+    && curl -LO "https://go.dev/dl/go1.24.7.linux-${GO_ARCH}.tar.gz" \
+    && tar -C /usr/local -xzf "go1.24.7.linux-${GO_ARCH}.tar.gz" \
+    && rm "go1.24.7.linux-${GO_ARCH}.tar.gz" \
+    && ln -sf /usr/local/go/bin/go /usr/bin/go
 
-# Install Rust
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-    chmod +x /root/.cargo/env
+# Install Rust - minimal profile to save space
+ENV RUSTUP_PROFILE=minimal
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
+    && chmod +x /root/.cargo/env
 
-# Create a non-root user
-RUN useradd -m -s /bin/bash qwen && \
-    usermod -aG sudo qwen && \
-    echo 'qwen ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+# Create non-root user
+RUN adduser -D -s /bin/bash qwen \
+    && addgroup qwen wheel \
+    && echo 'qwen ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
-# Make /root readable for inspection (but not writable)
-RUN chmod 755 /root
+# Copy tool installations to user and set ownership
+RUN cp -r /root/.cargo /home/qwen/ \
+    && cp -r /root/.rustup /home/qwen/ \
+    && cp -r /root/.local /home/qwen/ \
+    && chown -R qwen:qwen /home/qwen/.cargo /home/qwen/.rustup /home/qwen/.local \
+    # Remove unnecessary Rust components to save space (~180M savings)
+    && rm -rf /home/qwen/.rustup/toolchains/stable-*/share/doc \
+    && rm -rf /home/qwen/.rustup/toolchains/stable-*/share/man \
+    && rm -rf /home/qwen/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
+    && rm -f /home/qwen/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
 
-# Copy Rust installation to qwen user's home directory
-RUN cp -r /root/.cargo /home/qwen/ && \
-    cp -r /root/.rustup /home/qwen/ && \
-    chown -R qwen:qwen /home/qwen/.cargo /home/qwen/.rustup
+# Set PATH for all tools (using literal paths since HOME expands at runtime)
+ENV PATH="/home/qwen/.cargo/bin:/usr/local/go/bin:/home/qwen/.local/bin:$PATH"
 
-# Copy uv installation to qwen user's home directory
-RUN cp -r /root/.local /home/qwen/ && \
-    chown -R qwen:qwen /home/qwen/.local
-
-# Set PATH environment variable for all tools
-ENV PATH="$HOME/.cargo/bin:/usr/local/go/bin:$HOME/.local/bin:$PATH"
-
-# Set the working directory inside the container
+# Set working directory
 WORKDIR /app
 
 # Switch to non-root user
 USER qwen
 
-# Default command to run when the container starts (keep container running)
-CMD ["/bin/bash", "-c", "while true; do sleep 1000; done"]
+# Set bash as entrypoint to override Node.js default
+ENTRYPOINT ["/bin/bash"]
+
+# Default command
+CMD ["-c", "while true; do sleep 1000; done"]
