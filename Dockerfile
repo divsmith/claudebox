@@ -12,7 +12,7 @@ RUN apk add --no-cache \
     && rm -rf /var/cache/apk/*
 
 # Install npm packages globally
-RUN npm install -g @anthropic-ai/claude-code@2.0.14 \
+RUN npm install -g @anthropic-ai/claude-code@2.0.21 \
     && npm cache clean --force
 
 # Install uv Python package manager
