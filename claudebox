@@ -88,7 +88,7 @@ docker run --pull=always \
     --mount type=bind,source=$HOME/.private-journal,target=/home/qwen/.private-journal \
     --mount type=bind,source=$HOME/.claudebox_env,target=/home/qwen/.claudebox_env \
     --env-file $HOME/.claudebox_env \
-    ghcr.io/divsmith/qwenbox:latest
+    ghcr.io/divsmith/claudebox:latest
 
 # Wait for container to be ready
 echo "Waiting for container to be ready..."
