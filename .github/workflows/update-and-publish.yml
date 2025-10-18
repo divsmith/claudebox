@@ -111,8 +111,8 @@ jobs:
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
 
-      - name: Commit and push Dockerfile update (only for scheduled runs)
-        if: github.event_name != 'push'
+      - name: Commit and push Dockerfile update (only for scheduled runs with actual updates)
+        if: github.event_name != 'push' && needs.check-for-updates.outputs.has_new_version == 'true'
         run: |
           UPDATED_PACKAGES="${{ needs.check-for-updates.outputs.updated_packages }}"
           COMMIT_MSG="Update dependencies"
@@ -125,5 +125,11 @@ jobs:
           git config --local user.email "parker@parkersmith.us"
           git config --local user.name "Parker Smith"
           git add Dockerfile
-          git commit -m "$COMMIT_MSG"
-          git push
+
+          # Only commit if there are changes to commit
+          if ! git diff --cached --quiet; then
+            git commit -m "$COMMIT_MSG"
+            git push
+          else
+            echo "No changes to commit"
+          fi

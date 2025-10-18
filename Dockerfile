@@ -37,29 +37,29 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --pr
     && chmod +x /root/.cargo/env
 
 # Create non-root user
-RUN adduser -D -s /bin/bash qwen \
-    && addgroup qwen wheel \
-    && echo 'qwen ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN adduser -D -s /bin/bash claude \
+    && addgroup claude wheel \
+    && echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Copy tool installations to user and set ownership
-RUN cp -r /root/.cargo /home/qwen/ \
-    && cp -r /root/.rustup /home/qwen/ \
-    && cp -r /root/.local /home/qwen/ \
-    && chown -R qwen:qwen /home/qwen/.cargo /home/qwen/.rustup /home/qwen/.local \
+RUN cp -r /root/.cargo /home/claude/ \
+    && cp -r /root/.rustup /home/claude/ \
+    && cp -r /root/.local /home/claude/ \
+    && chown -R claude:claude /home/claude/.cargo /home/claude/.rustup /home/claude/.local \
     # Remove unnecessary Rust components to save space (~180M savings)
-    && rm -rf /home/qwen/.rustup/toolchains/stable-*/share/doc \
-    && rm -rf /home/qwen/.rustup/toolchains/stable-*/share/man \
-    && rm -rf /home/qwen/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
-    && rm -f /home/qwen/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
+    && rm -rf /home/claude/.rustup/toolchains/stable-*/share/doc \
+    && rm -rf /home/claude/.rustup/toolchains/stable-*/share/man \
+    && rm -rf /home/claude/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
+    && rm -f /home/claude/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
 
 # Set PATH for all tools (using literal paths since HOME expands at runtime)
-ENV PATH="/home/qwen/.cargo/bin:/usr/local/go/bin:/home/qwen/.local/bin:$PATH"
+ENV PATH="/home/claude/.cargo/bin:/usr/local/go/bin:/home/claude/.local/bin:$PATH"
 
 # Set working directory
-WORKDIR /app
+WORKDIR /sandbox
 
 # Switch to non-root user
-USER qwen
+USER claude
 
 # Set bash as entrypoint to override Node.js default
 ENTRYPOINT ["/bin/bash"]

@@ -38,7 +38,7 @@ docker build --no-cache -t claudebox .
 ```
 2. Run the container:
 ```bash
-docker run -d --rm --name claudebox --env-file .env -v /host/volume/directory:/app claudebox
+docker run -d --rm --name claudebox --env-file .env -v /host/volume/directory:/sandbox/project-name claudebox
 ```
 3. Exec into the container:
 ```bash

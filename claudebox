@@ -82,11 +82,11 @@ docker run --pull=always \
     -d \
     --rm \
     --name "$CONTAINER_NAME" \
-    -v "$PROJECT_DIR":/app \
-    --mount type=bind,source=$HOME/.claude,target=/home/qwen/.claude \
-    --mount type=bind,source=$HOME/.claude.json,target=/home/qwen/.claude.json \
-    --mount type=bind,source=$HOME/.private-journal,target=/home/qwen/.private-journal \
-    --mount type=bind,source=$HOME/.claudebox_env,target=/home/qwen/.claudebox_env \
+    -v "$PROJECT_DIR":/sandbox/"$DIR_NAME" \
+    --mount type=bind,source=$HOME/.claude,target=/home/claude/.claude \
+    --mount type=bind,source=$HOME/.claude.json,target=/home/claude/.claude.json \
+    --mount type=bind,source=$HOME/.private-journal,target=/home/claude/.private-journal \
+    --mount type=bind,source=$HOME/.claudebox_env,target=/home/claude/.claudebox_env \
     --env-file $HOME/.claudebox_env \
     ghcr.io/divsmith/claudebox:latest
 
@@ -117,9 +117,8 @@ echo "Setting up cleanup..."
 tmux set-hook -g session-closed "run-shell 'docker stop $CONTAINER_NAME 2>/dev/null || true'"
 
 # Send commands to start Claude Code - these will execute automatically
-# First ensure the config directory and file exist with proper content
-tmux send-keys -t "$SESSION_NAME" "docker exec $CONTAINER_NAME bash -c 'mkdir -p ~/.claude && echo \"[claude]\" > ~/.claude/config.toml && echo \"accept-dangerously-skip-permissions = true\" >> ~/.claude/config.toml'" Enter
-tmux send-keys -t "$SESSION_NAME" "docker exec -it $CONTAINER_NAME bash -c 'claude --dangerously-skip-permissions'" Enter
+# The config should come from the mounted volume, so just cd to project directory and start Claude
+tmux send-keys -t "$SESSION_NAME" "docker exec -it $CONTAINER_NAME bash -c 'cd /sandbox/\"$DIR_NAME\" && claude --dangerously-skip-permissions'" Enter
 
 # Attach to the session
 echo "Attaching to tmux session..."

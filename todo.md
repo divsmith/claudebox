@@ -1,6 +1,9 @@
 TODO:
-* [x] Install claude code in the docker image
-* [x] Fix tool installation / path issues (command not found) in the docker image
-* [x] Add new github workflow to check for new claude code versions and pull them into the docker image
-* [x] update .zshrc to include directory name in the container name, i.e. qwenbox-savvit instead of just qwenbox
-* [x] update .zshrc to include ~/.claude.json config file
+* [x] Update project directory mount from /app to /sandbox/{directory}
+* [x] Update container user name from qwen to claude
+* [x] Fix scheduled job that updates claude-code to not run build and publish if a new version of claude code is not detected. Currently the "build-and-publish" job will often fail with "On branch main
+Your branch is up to date with 'origin/main'.
+
+nothing to commit, working tree clean
+Error: Process completed with exit code 1."
+* [x] Remove the write to config.toml "accept-dangerously-skip-permissions = true" since it should come in with the attached claude config volume.
