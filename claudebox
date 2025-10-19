@@ -85,7 +85,6 @@ docker run --pull=always \
     -v "$PROJECT_DIR":/sandbox/"$DIR_NAME" \
     --mount type=bind,source=$HOME/.claude,target=/home/claude/.claude \
     --mount type=bind,source=$HOME/.claude.json,target=/home/claude/.claude.json \
-    --mount type=bind,source=$HOME/.private-journal,target=/home/claude/.private-journal \
     --mount type=bind,source=$HOME/.claudebox_env,target=/home/claude/.claudebox_env \
     --env-file $HOME/.claudebox_env \
     ghcr.io/divsmith/claudebox:latest
