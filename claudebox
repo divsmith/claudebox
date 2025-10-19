@@ -95,6 +95,10 @@ while ! docker exec "$CONTAINER_NAME" echo "ready" 2>/dev/null; do
     sleep 1
 done
 
+# Fix ownership of mounted Claude settings
+echo "Fixing permissions for Claude settings..."
+docker exec "$CONTAINER_NAME" sudo chown -R claude:claude /home/claude/.claude /home/claude/.claude.json 2>/dev/null || true
+
 # Check for Claude Code CLI updates
 echo "Checking for Claude Code CLI updates..."
 UPDATE_OUTPUT=$(docker exec "$CONTAINER_NAME" npm outdated -g @anthropic-ai/claude-code 2>/dev/null || echo "")
