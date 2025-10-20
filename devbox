@@ -1,0 +1,313 @@
+#!/bin/bash
+
+# devbox - Creates isolated development sandbox in tmux with Docker container
+# ABOUTME: Launches development tools in a tmux session with hybrid tool caching system
+
+set -e  # Exit on any error
+
+# Default values
+TOOL=""
+CACHE_DIR="$HOME/.devbox/cache"
+ENV_FILE="$HOME/.devbox_env"
+
+# Tool definitions - name:install_command|cache_filename|check_command
+TOOL_CLAUDE_CODE="npm install -g @anthropic-ai/claude-code|claude-code.tar.gz|claude"
+TOOL_GEMINI_CODE="npm install -g @google/generative-ai-cli|gemini-code.tar.gz|gemini"
+TOOL_QWEN_CLI="npm install -g @qwen/cli|qwen-cli.tar.gz|qwen"
+TOOL_OPENCODE="npm install -g opencode|opencode.tar.gz|opencode"
+
+# Function to show usage
+usage() {
+    echo "Usage: devbox [project-directory] [options]"
+    echo "  Creates a tmux session with Docker container for development"
+    echo "  Container is automatically stopped when tmux session ends"
+    echo "  If no directory specified, uses current directory"
+    echo ""
+    echo "Options:"
+    echo "  --tool <name>     Install and use specific coding tool"
+    echo "  --list-tools      Show available tools"
+    echo "  --cache-update    Update tool cache"
+    echo "  --cache-clean     Clean tool cache"
+    echo ""
+    echo "Available tools:"
+    for tool in "claude-code" "gemini-code" "qwen-cli" "opencode"; do
+        echo "  - $tool"
+    done
+    echo ""
+    echo "Examples:"
+    echo "  devbox ~/code/myproject"
+    echo "  devbox . --tool claude-code"
+    echo "  devbox --tool gemini-code"
+    echo ""
+    exit 1
+}
+
+# Function to get tool info
+get_tool_info() {
+    local tool="$1"
+    case "$tool" in
+        "claude-code") echo "$TOOL_CLAUDE_CODE" ;;
+        "gemini-code") echo "$TOOL_GEMINI_CODE" ;;
+        "qwen-cli") echo "$TOOL_QWEN_CLI" ;;
+        "opencode") echo "$TOOL_OPENCODE" ;;
+        *) echo "" ;;
+    esac
+}
+
+# Function to list available tools
+list_tools() {
+    echo "Available development tools:"
+    for tool in "claude-code" "gemini-code" "qwen-cli" "opencode"; do
+        tool_info=$(get_tool_info "$tool")
+        IFS='|' read -r install_cmd cache_file check_cmd <<< "$tool_info"
+        if [ -f "$CACHE_DIR/$cache_file" ]; then
+            status="(cached)"
+        else
+            status="(download on demand)"
+        fi
+        echo "  - $tool $status"
+    done
+}
+
+# Function to update tool cache
+cache_update() {
+    echo "Updating tool cache..."
+    mkdir -p "$CACHE_DIR"
+    
+    for tool in "claude-code" "gemini-code" "qwen-cli" "opencode"; do
+        tool_info=$(get_tool_info "$tool")
+        IFS='|' read -r install_cmd cache_file check_cmd <<< "$tool_info"
+        echo "  Downloading $tool..."
+        
+        # Create temporary container for download
+        temp_container="devbox-cache-$(date +%s)"
+        docker run --rm --name "$temp_container" -d \
+            -v "$CACHE_DIR":/cache \
+            ghcr.io/divsmith/claudebox:latest \
+            sleep 30
+            
+        # Wait for container to be ready
+        while ! docker exec "$temp_container" echo "ready" 2>/dev/null; do
+            sleep 1
+        done
+        
+        # Install tool and create cache
+        docker exec "$temp_container" bash -c "$install_cmd && npm cache clean --force"
+        
+        # Create tarball of installed tool
+        docker exec "$temp_container" tar -czf "/cache/$cache_file" -C /home/dev/.local/bin "$check_cmd" 2>/dev/null || \
+        docker exec "$temp_container" tar -czf "/cache/$cache_file" -C /usr/local/bin "$check_cmd" 2>/dev/null || \
+        docker exec "$temp_container" tar -czf "/cache/$cache_file" -C /home/dev/.npm-global/bin "$check_cmd" 2>/dev/null || {
+            echo "    Warning: Could not cache $tool"
+        }
+        
+        docker stop "$temp_container"
+    done
+    
+    echo "Tool cache updated!"
+}
+
+# Function to clean tool cache
+cache_clean() {
+    echo "Cleaning tool cache..."
+    if [ -d "$CACHE_DIR" ]; then
+        rm -rf "$CACHE_DIR"
+        echo "Cache cleaned!"
+    else
+        echo "No cache to clean"
+    fi
+}
+
+# Function to install tool in container
+install_tool() {
+    local tool="$1"
+    local container_name="$2"
+    
+    tool_info=$(get_tool_info "$tool")
+    if [ -z "$tool_info" ]; then
+        echo "Unknown tool: $tool"
+        echo "Use --list-tools to see available tools"
+        exit 1
+    fi
+    
+    IFS='|' read -r install_cmd cache_file check_cmd <<< "$tool_info"
+    
+    # Check if tool is already installed
+    if docker exec "$container_name" command -v "$check_cmd" &> /dev/null; then
+        echo "$tool is already installed"
+        return 0
+    fi
+    
+    # Check if we have cached version
+    if [ -f "$CACHE_DIR/$cache_file" ]; then
+        echo "Installing $tool from cache..."
+        docker cp "$CACHE_DIR/$cache_file" "$container_name:/tmp/$cache_file"
+        docker exec "$container_name" tar -xzf "/tmp/$cache_file" -C /usr/local/bin/ || \
+        docker exec "$container_name" tar -xzf "/tmp/$cache_file" -C /home/dev/.local/bin/ || \
+        docker exec "$container_name" tar -xzf "/tmp/$cache_file" -C /home/dev/.npm-global/bin/ || {
+            echo "Failed to extract $tool from cache, falling back to npm install"
+            docker exec "$container_name" bash -c "$install_cmd"
+        }
+        docker exec "$container_name" rm "/tmp/$cache_file"
+    else
+        echo "Downloading and installing $tool..."
+        docker exec "$container_name" bash -c "$install_cmd && npm cache clean --force"
+        
+        # Cache for future use
+        echo "Caching $tool for future use..."
+        docker exec "$container_name" tar -czf "/tmp/$cache_file" -C /usr/local/bin "$check_cmd" 2>/dev/null || \
+        docker exec "$container_name" tar -czf "/tmp/$cache_file" -C /home/dev/.local/bin "$check_cmd" 2>/dev/null || \
+        docker exec "$container_name" tar -czf "/tmp/$cache_file" -C /home/dev/.npm-global/bin "$check_cmd" 2>/dev/null || true
+        
+        if docker exec "$container_name" test -f "/tmp/$cache_file"; then
+            docker cp "$container_name:/tmp/$cache_file" "$CACHE_DIR/$cache_file"
+        fi
+    fi
+    
+    echo "$tool installed successfully!"
+}
+
+# Parse arguments
+PROJECT_DIR=""
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --tool)
+            TOOL="$2"
+            shift 2
+            ;;
+        --list-tools)
+            list_tools
+            exit 0
+            ;;
+        --cache-update)
+            cache_update
+            exit 0
+            ;;
+        --cache-clean)
+            cache_clean
+            exit 0
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -*)
+            echo "Unknown option: $1"
+            usage
+            ;;
+        *)
+            if [ -z "$PROJECT_DIR" ]; then
+                PROJECT_DIR="$1"
+            else
+                echo "Multiple project directories specified"
+                usage
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Default to current directory if no project specified
+if [ -z "$PROJECT_DIR" ]; then
+    PROJECT_DIR="$(pwd)"
+fi
+
+# Convert to absolute path and resolve any . or .. components
+if [[ "$PROJECT_DIR" != /* ]]; then
+    PROJECT_DIR="$(pwd)/$PROJECT_DIR"
+fi
+
+# Remove trailing slashes and resolve to get the real directory name
+PROJECT_DIR="${PROJECT_DIR%/}"
+if [[ "$PROJECT_DIR" == "." ]]; then
+    PROJECT_DIR="$(pwd)"
+fi
+
+# Validate project directory
+if [ ! -d "$PROJECT_DIR" ]; then
+    echo "Directory '$PROJECT_DIR' does not exist"
+    exit 1
+fi
+
+# Generate names - use pwd to get the actual directory name
+DIR_NAME=$(basename "$(realpath "$PROJECT_DIR")")
+
+# Handle dot-prefixed directories by removing the leading dot for naming
+# Both Docker and tmux have restrictions on starting characters
+CLEAN_DIR_NAME="${DIR_NAME#.}"  # Remove leading dot if present
+if [[ "$CLEAN_DIR_NAME" == "$DIR_NAME" ]]; then
+    # No dot was removed, use original name
+    SESSION_NAME="devbox-$DIR_NAME"
+    CONTAINER_NAME="devbox-$DIR_NAME"
+else
+    # Dot was removed, use cleaned name
+    SESSION_NAME="devbox-$CLEAN_DIR_NAME"
+    CONTAINER_NAME="devbox-$CLEAN_DIR_NAME"
+fi
+
+# Check if tmux session already exists
+if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
+    echo "Session '$SESSION_NAME' already exists. Attaching..."
+    tmux attach -t "$SESSION_NAME"
+    exit 0
+fi
+
+echo "Setting up DevBox for project: $DIR_NAME"
+echo "Session name: $SESSION_NAME"
+echo "Container name: $CONTAINER_NAME"
+echo "Project directory: $PROJECT_DIR"
+if [ -n "$TOOL" ]; then
+    echo "Development tool: $TOOL"
+fi
+echo ""
+
+# Stop existing container if it exists
+echo "Cleaning up any existing container..."
+docker stop "$CONTAINER_NAME" 2>/dev/null || true
+
+# Start new container
+echo "Starting DevBox container..."
+docker run --pull=always \
+    -d \
+    --rm \
+    --name "$CONTAINER_NAME" \
+    -v "$PROJECT_DIR":/sandbox/"$DIR_NAME" \
+    -v "$CACHE_DIR":/cache:ro \
+    --mount type=bind,source=$ENV_FILE,target=/home/dev/.devbox_env \
+    --env-file $ENV_FILE \
+    ghcr.io/divsmith/claudebox:latest
+
+# Wait for container to be ready
+echo "Waiting for container to be ready..."
+while ! docker exec "$CONTAINER_NAME" echo "ready" 2>/dev/null; do
+    sleep 1
+done
+
+# Install requested tool if specified
+if [ -n "$TOOL" ]; then
+    install_tool "$TOOL" "$CONTAINER_NAME"
+fi
+
+# Create new tmux session
+echo "Creating tmux session..."
+tmux new-session -d -s "$SESSION_NAME"
+
+# Set up simple cleanup
+echo "Setting up cleanup..."
+# Simple hook for when session is explicitly killed
+tmux set-hook -g session-closed "run-shell 'docker stop $CONTAINER_NAME 2>/dev/null || true'"
+
+# Prepare startup command
+if [ -n "$TOOL" ]; then
+    tool_info=$(get_tool_info "$TOOL")
+    IFS='|' read -r install_cmd cache_file check_cmd <<< "$tool_info"
+    START_CMD="cd /sandbox/\"$DIR_NAME\" && $check_cmd"
+else
+    START_CMD="cd /sandbox/\"$DIR_NAME\" && bash"
+fi
+
+# Send commands to start development session
+tmux send-keys -t "$SESSION_NAME" "docker exec -it $CONTAINER_NAME bash -c '$START_CMD'" Enter
+
+# Attach to the session
+echo "Attaching to tmux session..."
+tmux attach -t "$SESSION_NAME"
