@@ -1,21 +1,34 @@
 #!/bin/bash
 
-# claudebox - Creates isolated Claude Code session in tmux with Docker container
+# devbox - Creates isolated Claude Code session in tmux with Docker container
 # ABOUTME: Launches Claude Code in a tmux session with automatic Docker container cleanup
 
 set -e  # Exit on any error
 
+# Cleanup function for unexpected exits
+cleanup() {
+    echo "Cleaning up session-specific files..."
+    rm -f "$SESSION_CLAUDE_JSON" 2>/dev/null || true
+    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+}
+
+# Set trap for cleanup on script exit
+trap cleanup EXIT
+
+# Variables for cleanup
+SESSION_CLAUDE_JSON=""
+
 # Function to show usage
 usage() {
-    echo "Usage: claudebox [project-directory]"
+    echo "Usage: devbox [project-directory]"
     echo "  Creates a tmux session with Docker container running Claude Code"
     echo "  Container is automatically stopped when tmux session ends"
     echo "  If no directory specified, uses current directory"
     echo ""
     echo "Examples:"
-    echo "  claudebox ~/code/myproject"
-    echo "  claudebox ."
-    echo "  claudebox"
+    echo "  devbox ~/code/myproject"
+    echo "  devbox ."
+    echo "  devbox"
     exit 1
 }
 
@@ -52,11 +65,11 @@ CLEAN_DIR_NAME="${DIR_NAME#.}"  # Remove leading dot if present
 if [[ "$CLEAN_DIR_NAME" == "$DIR_NAME" ]]; then
     # No dot was removed, use original name
     SESSION_NAME="claude-$DIR_NAME"
-    CONTAINER_NAME="claudebox-$DIR_NAME"
+    CONTAINER_NAME="devbox-$DIR_NAME"
 else
     # Dot was removed, use cleaned name
     SESSION_NAME="claude-$CLEAN_DIR_NAME"
-    CONTAINER_NAME="claudebox-$CLEAN_DIR_NAME"
+    CONTAINER_NAME="devbox-$CLEAN_DIR_NAME"
 fi
 
 # Check if tmux session already exists
@@ -76,6 +89,59 @@ echo ""
 echo "Cleaning up any existing container..."
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
 
+# Create session-specific claude.json with preferences
+SESSION_CLAUDE_JSON="$HOME/.claude_${SESSION_NAME}.json"
+configure_claude_preferences() {
+    local config_file="$1"
+
+    # Create session-specific configuration with preferences
+    if [ -f "$HOME/.claude.json" ]; then
+        echo "Creating session-specific Claude configuration..."
+        cp "$HOME/.claude.json" "$config_file"
+
+        # Add or update preferences while preserving existing config
+        echo "Configuring Claude preferences (dark theme, vim mode)..."
+
+        # Use a Python one-liner to merge JSON preferences (more reliable than jq)
+        if command -v python3 >/dev/null 2>&1; then
+            python3 << EOF
+import json
+import sys
+
+try:
+    with open('$config_file', 'r') as f:
+        config = json.load(f)
+except:
+    config = {}
+
+# Ensure preferences are set
+config['theme'] = 'dark'
+config['vimMode'] = True
+
+with open('$config_file', 'w') as f:
+    json.dump(config, f, indent=2)
+EOF
+        elif command -v jq >/dev/null 2>&1; then
+            # Fallback to jq if Python not available
+            jq '. + {theme: "dark", vimMode: true}' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
+        else
+            # Last resort: create simple config
+            echo '{"theme": "dark", "vimMode": true}' > "$config_file"
+        fi
+    else
+        # Create default session-specific config with preferences
+        echo "Creating default Claude configuration with preferences..."
+        cat > "$config_file" << 'EOF'
+{
+  "theme": "dark",
+  "vimMode": true
+}
+EOF
+    fi
+}
+
+configure_claude_preferences "$SESSION_CLAUDE_JSON"
+
 # Start new container
 echo "Starting Docker container..."
 docker run --pull=always \
@@ -83,10 +149,10 @@ docker run --pull=always \
     --rm \
     --name "$CONTAINER_NAME" \
     -v "$PROJECT_DIR":/sandbox/"$DIR_NAME" \
-    --mount type=bind,source=$HOME/.claude,target=/home/claude/.claude \
-    --mount type=bind,source=$HOME/.claude.json,target=/home/claude/.claude.json \
-    --mount type=bind,source=$HOME/.claudebox_env,target=/home/claude/.claudebox_env \
-    --env-file $HOME/.claudebox_env \
+    --mount type=bind,source=$HOME/.claude,target=/home/dev/.claude \
+    --mount type=bind,source=$SESSION_CLAUDE_JSON,target=/home/dev/.claude.json \
+    --mount type=bind,source=$HOME/.devbox_env,target=/home/dev/.devbox_env \
+    --env-file $HOME/.devbox_env \
     ghcr.io/divsmith/claudebox:latest
 
 # Wait for container to be ready
@@ -97,7 +163,7 @@ done
 
 # Fix ownership of mounted Claude settings
 echo "Fixing permissions for Claude settings..."
-docker exec "$CONTAINER_NAME" sudo chown -R claude:claude /home/claude/.claude /home/claude/.claude.json 2>/dev/null || true
+docker exec "$CONTAINER_NAME" sudo chown -R dev:dev /home/dev/.claude /home/dev/.claude.json 2>/dev/null || true
 
 # Check for Claude Code CLI updates
 echo "Checking for Claude Code CLI updates..."
@@ -116,7 +182,8 @@ tmux new-session -d -s "$SESSION_NAME"
 
 # Set up simple cleanup
 echo "Setting up cleanup..."
-# Simple hook for when session is explicitly killed
+# Simple hook for when session is explicitly killed (tmux session cleanup)
+# Note: Session-specific file cleanup handled by trap
 tmux set-hook -g session-closed "run-shell 'docker stop $CONTAINER_NAME 2>/dev/null || true'"
 
 # Send commands to start Claude Code - these will execute automatically

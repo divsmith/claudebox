@@ -1,4 +1,4 @@
-# ClaudeBox
+# DevBox
 
 A containerized sandbox for running Claude Code with automatic environment management and tmux integration.
 
@@ -12,16 +12,16 @@ A containerized sandbox for running Claude Code with automatic environment manag
 
 ## Quick Start
 
-### Using the ClaudeBox Script (Recommended)
+### Using the DevBox Script (Recommended)
 
-The easiest way to use ClaudeBox is with the provided launch script:
+The easiest way to use DevBox is with the provided launch script:
 
 ```bash
 # Launch for current directory
-./claudebox
+./devbox
 
 # Launch for specific project directory
-./claudebox ~/path/to/your/project
+./devbox ~/path/to/your/project
 
 # The script will:
 # - Create a tmux session named "claude-{project-name}"
@@ -34,15 +34,15 @@ The easiest way to use ClaudeBox is with the provided launch script:
 
 1. Build the Docker image:
 ```bash
-docker build --no-cache -t claudebox .
+docker build --no-cache -t devbox .
 ```
 2. Run the container:
 ```bash
-docker run -d --rm --name claudebox --env-file .env -v /host/volume/directory:/sandbox/project-name claudebox
+docker run -d --rm --name devbox --env-file .env -v /host/volume/directory:/sandbox/project-name devbox
 ```
 3. Exec into the container:
 ```bash
-docker exec -it claudebox /bin/sh
+docker exec -it devbox /bin/sh
 ```
 
 ## GitHub Actions Automation
@@ -58,6 +58,6 @@ The workflow:
    - Commits and pushes the updated Dockerfile to the repository
 
 Images are published to:
-- `ghcr.io/divsmith/claudebox:latest`
-- `ghcr.io/divsmith/claudebox:VERSION`
-- `ghcr.io/divsmith/claudebox:COMMIT_SHA`
+- `ghcr.io/divsmith/devbox:latest`
+- `ghcr.io/divsmith/devbox:VERSION`
+- `ghcr.io/divsmith/devbox:COMMIT_SHA`
