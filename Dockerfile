@@ -4,22 +4,16 @@ FROM node:lts-alpine
 # Install build dependencies and cleanup in single layer
 RUN apk add --no-cache \
     curl \
-    wget \
     vim \
-    nano \
-    git \
-    htop \
-    tree \
-    unzip \
-    tar \
     python3 \
     py3-pip \
     sudo \
     bash \
-    jq \
     && rm -rf /var/cache/apk/*
 
-# No coding tools pre-installed - installed on demand via caching system
+# Install npm packages globally
+RUN npm install -g @anthropic-ai/claude-code@2.0.21 \
+    && npm cache clean --force
 
 # Install uv Python package manager
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh \
@@ -43,29 +37,29 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --pr
     && chmod +x /root/.cargo/env
 
 # Create non-root user
-RUN adduser -D -s /bin/bash dev \
-    && addgroup dev wheel \
-    && echo 'dev ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN adduser -D -s /bin/bash claude \
+    && addgroup claude wheel \
+    && echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Copy tool installations to user and set ownership
-RUN cp -r /root/.cargo /home/dev/ \
-    && cp -r /root/.rustup /home/dev/ \
-    && cp -r /root/.local /home/dev/ \
-    && chown -R dev:dev /home/dev/.cargo /home/dev/.rustup /home/dev/.local \
+RUN cp -r /root/.cargo /home/claude/ \
+    && cp -r /root/.rustup /home/claude/ \
+    && cp -r /root/.local /home/claude/ \
+    && chown -R claude:claude /home/claude/.cargo /home/claude/.rustup /home/claude/.local \
     # Remove unnecessary Rust components to save space (~180M savings)
-    && rm -rf /home/dev/.rustup/toolchains/stable-*/share/doc \
-    && rm -rf /home/dev/.rustup/toolchains/stable-*/share/man \
-    && rm -rf /home/dev/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
-    && rm -f /home/dev/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
+    && rm -rf /home/claude/.rustup/toolchains/stable-*/share/doc \
+    && rm -rf /home/claude/.rustup/toolchains/stable-*/share/man \
+    && rm -rf /home/claude/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
+    && rm -f /home/claude/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
 
 # Set PATH for all tools (using literal paths since HOME expands at runtime)
-ENV PATH="/home/dev/.cargo/bin:/usr/local/go/bin:/home/dev/.local/bin:$PATH"
+ENV PATH="/home/claude/.cargo/bin:/usr/local/go/bin:/home/claude/.local/bin:$PATH"
 
 # Set working directory
 WORKDIR /sandbox
 
 # Switch to non-root user
-USER dev
+USER claude
 
 # Set bash as entrypoint to override Node.js default
 ENTRYPOINT ["/bin/bash"]
