@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# devbox - Creates isolated Claude Code session in tmux with Docker container
-# ABOUTME: Launches Claude Code in a tmux session with automatic Docker container cleanup
+# devbox - Creates isolated Claude Code session in Docker container
+# ABOUTME: Launches Claude Code with automatic container cleanup
 
 set -e  # Exit on any error
 
-# Cleanup function for unexpected exits
+# Cleanup function
 cleanup() {
-    echo "Cleaning up session-specific files..."
+    echo "Cleaning up..."
     rm -f "$SESSION_CLAUDE_JSON" 2>/dev/null || true
-    docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    if [ -n "$CONTAINER_NAME" ]; then
+        docker stop "$CONTAINER_NAME" 2>/dev/null || true
+    fi
 }
 
 # Set trap for cleanup on script exit
@@ -17,12 +19,13 @@ trap cleanup EXIT
 
 # Variables for cleanup
 SESSION_CLAUDE_JSON=""
+CONTAINER_NAME=""
 
 # Function to show usage
 usage() {
     echo "Usage: devbox [project-directory]"
-    echo "  Creates a tmux session with Docker container running Claude Code"
-    echo "  Container is automatically stopped when tmux session ends"
+    echo "  Creates a Docker container running Claude Code"
+    echo "  Container is automatically stopped when you exit"
     echo "  If no directory specified, uses current directory"
     echo ""
     echo "Examples:"
@@ -60,27 +63,16 @@ fi
 DIR_NAME=$(basename "$(realpath "$PROJECT_DIR")")
 
 # Handle dot-prefixed directories by removing the leading dot for naming
-# Both Docker and tmux have restrictions on starting characters
 CLEAN_DIR_NAME="${DIR_NAME#.}"  # Remove leading dot if present
 if [[ "$CLEAN_DIR_NAME" == "$DIR_NAME" ]]; then
     # No dot was removed, use original name
-    SESSION_NAME="claude-$DIR_NAME"
     CONTAINER_NAME="devbox-$DIR_NAME"
 else
     # Dot was removed, use cleaned name
-    SESSION_NAME="claude-$CLEAN_DIR_NAME"
     CONTAINER_NAME="devbox-$CLEAN_DIR_NAME"
 fi
 
-# Check if tmux session already exists
-if tmux has-session -t "$SESSION_NAME" 2>/dev/null; then
-    echo "Session '$SESSION_NAME' already exists. Attaching..."
-    tmux attach -t "$SESSION_NAME"
-    exit 0
-fi
-
 echo "Creating Claude Code session for project: $DIR_NAME"
-echo "Session name: $SESSION_NAME"
 echo "Container name: $CONTAINER_NAME"
 echo "Project directory: $PROJECT_DIR"
 echo ""
@@ -90,7 +82,7 @@ echo "Cleaning up any existing container..."
 docker stop "$CONTAINER_NAME" 2>/dev/null || true
 
 # Create session-specific claude.json with preferences
-SESSION_CLAUDE_JSON="$HOME/.claude_${SESSION_NAME}.json"
+SESSION_CLAUDE_JSON="$HOME/.claude_${CONTAINER_NAME}.json"
 configure_claude_preferences() {
     local config_file="$1"
 
@@ -142,54 +134,29 @@ EOF
 
 configure_claude_preferences "$SESSION_CLAUDE_JSON"
 
-# Start new container
-echo "Starting Docker container..."
-docker run --pull=always \
-    -d \
+# Build local Docker image if needed
+echo "Ensuring Docker image is available..."
+if ! docker image inspect devbox:latest >/dev/null 2>&1; then
+    echo "Building local devbox image..."
+    docker build -t devbox:latest .
+fi
+
+# Always try to allocate a TTY for Claude Code since it's meant to be interactive
+TTY_FLAGS="-it"
+
+# Start container and launch Claude Code directly
+echo "Starting Docker container and launching Claude Code..."
+
+# Start the container directly
+docker run \
     --rm \
+    $TTY_FLAGS \
     --name "$CONTAINER_NAME" \
     -v "$PROJECT_DIR":/sandbox/"$DIR_NAME" \
     --mount type=bind,source=$HOME/.claude,target=/home/dev/.claude \
     --mount type=bind,source=$SESSION_CLAUDE_JSON,target=/home/dev/.claude.json \
     --mount type=bind,source=$HOME/.devbox_env,target=/home/dev/.devbox_env \
     --env-file $HOME/.devbox_env \
-    ghcr.io/divsmith/claudebox:latest
-
-# Wait for container to be ready
-echo "Waiting for container to be ready..."
-while ! docker exec "$CONTAINER_NAME" echo "ready" 2>/dev/null; do
-    sleep 1
-done
-
-# Fix ownership of mounted Claude settings
-echo "Fixing permissions for Claude settings..."
-docker exec "$CONTAINER_NAME" sudo chown -R dev:dev /home/dev/.claude /home/dev/.claude.json 2>/dev/null || true
-
-# Check for Claude Code CLI updates
-echo "Checking for Claude Code CLI updates..."
-UPDATE_OUTPUT=$(docker exec "$CONTAINER_NAME" npm outdated -g @anthropic-ai/claude-code 2>/dev/null || echo "")
-if [ -n "$UPDATE_OUTPUT" ]; then
-    echo "Updating Claude Code CLI..."
-    docker exec "$CONTAINER_NAME" sudo npm update -g @anthropic-ai/claude-code
-    echo "Claude Code CLI updated successfully"
-else
-    echo "Claude Code CLI is up to date"
-fi
-
-# Create new tmux session
-echo "Creating tmux session..."
-tmux new-session -d -s "$SESSION_NAME"
-
-# Set up simple cleanup
-echo "Setting up cleanup..."
-# Simple hook for when session is explicitly killed (tmux session cleanup)
-# Note: Session-specific file cleanup handled by trap
-tmux set-hook -g session-closed "run-shell 'docker stop $CONTAINER_NAME 2>/dev/null || true'"
-
-# Send commands to start Claude Code - these will execute automatically
-# The config should come from the mounted volume, so just cd to project directory and start Claude
-tmux send-keys -t "$SESSION_NAME" "docker exec -it $CONTAINER_NAME bash -c 'cd /sandbox/\"$DIR_NAME\" && claude --dangerously-skip-permissions'" Enter
-
-# Attach to the session
-echo "Attaching to tmux session..."
-tmux attach -t "$SESSION_NAME"
+    -w "/sandbox/$DIR_NAME" \
+    devbox:latest \
+    claude --dangerously-skip-permissions
