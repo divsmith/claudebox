@@ -22,17 +22,76 @@ Thumbs.db
 # Claude files
 .claude/
 
-# Node modules (if any)
+# Node.js
 node_modules/
+.npm/
+.npmrc
+package-lock.json
+yarn.lock
+
+# Rust
+target/
+Cargo.lock
+**/*.pdb
+**/*.profraw
+
+# Go
+vendor/
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.out
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
 # Logs
 *.log
 logs/
 
-# Temporary files
+# Temporary files and caches
 *.tmp
 *.temp
+*.cache
+.cache/
+tmp/
+temp/
+
+# Build artifacts
+build/
+dist/
+target/
 
 # Documentation
 README.md
 todo.md
+*.md
+!Dockerfile*
+
+# Development environment files
+.env
+.env.local
+.env.*.local
+devbox.local
