@@ -23,23 +23,55 @@ CONTAINER_NAME=""
 
 # Function to show usage
 usage() {
-    echo "Usage: devbox [project-directory]"
+    echo "Usage: devbox [options] [project-directory]"
     echo "  Creates a Docker container running Claude Code"
     echo "  Container is automatically stopped when you exit"
     echo "  If no directory specified, uses current directory"
+    echo ""
+    echo "Options:"
+    echo "  -l, --local    Use local devbox:latest image instead of remote"
     echo ""
     echo "Examples:"
     echo "  devbox ~/code/myproject"
     echo "  devbox ."
     echo "  devbox"
+    echo "  devbox --local ~/code/myproject"
+    echo "  devbox -l"
     exit 1
 }
 
+# Default values
+USE_LOCAL_IMAGE=false
+
 # Parse arguments
-if [ $# -eq 0 ]; then
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -l|--local)
+            USE_LOCAL_IMAGE=true
+            shift
+            ;;
+        -h|--help)
+            usage
+            ;;
+        -*)
+            echo "Error: Unknown option $1"
+            usage
+            ;;
+        *)
+            if [ -z "$PROJECT_DIR" ]; then
+                PROJECT_DIR="$1"
+            else
+                echo "Error: Multiple project directories specified"
+                usage
+            fi
+            shift
+            ;;
+    esac
+done
+
+# Set default project directory if not specified
+if [ -z "$PROJECT_DIR" ]; then
     PROJECT_DIR="$(pwd)"
-else
-    PROJECT_DIR="$1"
 fi
 
 # Convert to absolute path and resolve any . or .. components
@@ -134,11 +166,38 @@ EOF
 
 configure_claude_preferences "$SESSION_CLAUDE_JSON"
 
-# Build local Docker image if needed
-echo "Ensuring Docker image is available..."
-if ! docker image inspect devbox:latest >/dev/null 2>&1; then
-    echo "Building local devbox image..."
-    docker build -t devbox:latest .
+# Ensure mount sources exist before attempting to mount them
+ensure_mount_source() {
+    local source_path="$1"
+    local description="$2"
+
+    if [ ! -e "$source_path" ]; then
+        echo "Creating missing $description: $source_path"
+        mkdir -p "$source_path" 2>/dev/null || touch "$source_path" 2>/dev/null || {
+            echo "Warning: Could not create $source_path, mount will be skipped"
+        }
+    fi
+}
+
+# Ensure all mount sources exist
+ensure_mount_source "$HOME/.claude" "Claude directory"
+ensure_mount_source "$SESSION_CLAUDE_JSON" "Claude preferences file"
+ensure_mount_source "$HOME/.devbox_env" "DevBox environment file"
+
+# Determine which image to use
+if [ "$USE_LOCAL_IMAGE" = true ]; then
+    DOCKER_IMAGE="devbox:latest"
+    echo "Using local devbox image..."
+
+else
+    DOCKER_IMAGE="ghcr.io/divsmith/devbox:latest"
+    echo "Using remote devbox image from ghcr.io/divsmith/devbox:latest..."
+
+    # Pull the remote image if not available locally
+    if ! docker image inspect ghcr.io/divsmith/devbox:latest >/dev/null 2>&1; then
+        echo "Pulling remote devbox image..."
+        docker pull ghcr.io/divsmith/devbox:latest
+    fi
 fi
 
 # Always try to allocate a TTY for Claude Code since it's meant to be interactive
@@ -159,5 +218,5 @@ docker run \
     --mount type=bind,source=$HOME/.devbox_env,target=/home/devusr/.devbox_env \
     --env-file $HOME/.devbox_env \
     -w "/devbox/$DIR_NAME" \
-    devbox:latest \
+    $DOCKER_IMAGE \
     claude --dangerously-skip-permissions
