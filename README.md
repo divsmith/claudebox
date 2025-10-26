@@ -34,7 +34,7 @@ The easiest way to use DevBox is with the provided launch script:
 
 1. Build the Docker image:
 ```bash
-docker build -t devbox:latest .
+docker build --no-cache -t devbox:latest .
 ```
 2. Run the container:
 ```bash
