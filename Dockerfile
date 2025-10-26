@@ -30,18 +30,8 @@ RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
     && rm "go1.24.7.linux-${GO_ARCH}.tar.gz" \
     && ln -sf /usr/local/go/bin/go /usr/bin/go
 
-# Install Rust as devusr with minimal profile to save space
 USER devusr
-ENV RUSTUP_PROFILE=minimal
 ENV HOME=/home/devusr
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
-    && chmod +x /home/devusr/.cargo/env \
-    # Remove unnecessary Rust components to save space (~180M savings)
-    && rm -rf /home/devusr/.rustup/toolchains/stable-*/share/doc \
-    && rm -rf /home/devusr/.rustup/toolchains/stable-*/share/man \
-    && rm -rf /home/devusr/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
-    && rm -f /home/devusr/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
-
 # Install Claude Code and uv as devusr
 RUN npm config set prefix '~/.npm-global' \
     && npm install -g @anthropic-ai/claude-code@2.0.21 \
@@ -52,7 +42,7 @@ RUN npm config set prefix '~/.npm-global' \
 USER root
 
 # Set PATH for all tools (using literal paths since HOME expands at runtime)
-ENV PATH="/home/devusr/.cargo/bin:/usr/local/go/bin:/home/devusr/.local/bin:/home/devusr/.npm-global/bin:/usr/local/bin:$PATH"
+ENV PATH="/usr/local/go/bin:/home/devusr/.local/bin:/home/devusr/.npm-global/bin:/usr/local/bin:$PATH"
 
 # Set working directory
 WORKDIR /devbox
