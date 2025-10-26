@@ -153,11 +153,11 @@ docker run \
     $TTY_FLAGS \
     --entrypoint="" \
     --name "$CONTAINER_NAME" \
-    -v "$PROJECT_DIR":/sandbox/"$DIR_NAME" \
-    --mount type=bind,source=$HOME/.claude,target=/home/claude/.claude \
-    --mount type=bind,source=$SESSION_CLAUDE_JSON,target=/home/claude/.claude.json \
-    --mount type=bind,source=$HOME/.devbox_env,target=/home/claude/.devbox_env \
+    -v "$PROJECT_DIR":/devbox/"$DIR_NAME" \
+    --mount type=bind,source=$HOME/.claude,target=/home/devusr/.claude \
+    --mount type=bind,source=$SESSION_CLAUDE_JSON,target=/home/devusr/.claude.json \
+    --mount type=bind,source=$HOME/.devbox_env,target=/home/devusr/.devbox_env \
     --env-file $HOME/.devbox_env \
-    -w "/sandbox/$DIR_NAME" \
+    -w "/devbox/$DIR_NAME" \
     devbox:latest \
     claude --dangerously-skip-permissions

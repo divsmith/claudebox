@@ -37,29 +37,29 @@ RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --pr
     && chmod +x /root/.cargo/env
 
 # Create non-root user
-RUN adduser -D -s /bin/bash claude \
-    && addgroup claude wheel \
-    && echo 'claude ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN adduser -D -s /bin/bash devusr \
+    && addgroup devusr wheel \
+    && echo 'devusr ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
 
 # Copy tool installations to user and set ownership
-RUN cp -r /root/.cargo /home/claude/ \
-    && cp -r /root/.rustup /home/claude/ \
-    && cp -r /root/.local /home/claude/ \
-    && chown -R claude:claude /home/claude/.cargo /home/claude/.rustup /home/claude/.local \
+RUN cp -r /root/.cargo /home/devusr/ \
+    && cp -r /root/.rustup /home/devusr/ \
+    && cp -r /root/.local /home/devusr/ \
+    && chown -R devusr:devusr /home/devusr/.cargo /home/devusr/.rustup /home/devusr/.local \
     # Remove unnecessary Rust components to save space (~180M savings)
-    && rm -rf /home/claude/.rustup/toolchains/stable-*/share/doc \
-    && rm -rf /home/claude/.rustup/toolchains/stable-*/share/man \
-    && rm -rf /home/claude/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
-    && rm -f /home/claude/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
+    && rm -rf /home/devusr/.rustup/toolchains/stable-*/share/doc \
+    && rm -rf /home/devusr/.rustup/toolchains/stable-*/share/man \
+    && rm -rf /home/devusr/.rustup/toolchains/stable-*/lib/rustlib/*/bin \
+    && rm -f /home/devusr/.rustup/toolchains/stable-*/lib/rustlib/*/lib/libtest-*.rlib
 
 # Set PATH for all tools (using literal paths since HOME expands at runtime)
-ENV PATH="/home/claude/.cargo/bin:/usr/local/go/bin:/home/claude/.local/bin:$PATH"
+ENV PATH="/home/devusr/.cargo/bin:/usr/local/go/bin:/home/devusr/.local/bin:$PATH"
 
 # Set working directory
-WORKDIR /sandbox
+WORKDIR /devbox
 
 # Switch to non-root user
-USER claude
+USER devusr
 
 # Set bash as entrypoint to override Node.js default
 ENTRYPOINT ["/bin/bash"]
