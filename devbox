@@ -151,11 +151,12 @@ echo "Starting Docker container and launching Claude Code..."
 docker run \
     --rm \
     $TTY_FLAGS \
+    --entrypoint="" \
     --name "$CONTAINER_NAME" \
     -v "$PROJECT_DIR":/sandbox/"$DIR_NAME" \
-    --mount type=bind,source=$HOME/.claude,target=/home/dev/.claude \
-    --mount type=bind,source=$SESSION_CLAUDE_JSON,target=/home/dev/.claude.json \
-    --mount type=bind,source=$HOME/.devbox_env,target=/home/dev/.devbox_env \
+    --mount type=bind,source=$HOME/.claude,target=/home/claude/.claude \
+    --mount type=bind,source=$SESSION_CLAUDE_JSON,target=/home/claude/.claude.json \
+    --mount type=bind,source=$HOME/.devbox_env,target=/home/claude/.devbox_env \
     --env-file $HOME/.devbox_env \
     -w "/sandbox/$DIR_NAME" \
     devbox:latest \
