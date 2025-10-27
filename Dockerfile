@@ -9,6 +9,7 @@ RUN apk add --no-cache \
     py3-pip \
     sudo \
     bash \
+    git \
     && rm -rf /var/cache/apk/*
 
 # Create non-root user first
