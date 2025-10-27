@@ -192,12 +192,8 @@ if [ "$USE_LOCAL_IMAGE" = true ]; then
 else
     DOCKER_IMAGE="ghcr.io/divsmith/devbox:latest"
     echo "Using remote devbox image from ghcr.io/divsmith/devbox:latest..."
-
-    # Pull the remote image if not available locally
-    if ! docker image inspect ghcr.io/divsmith/devbox:latest >/dev/null 2>&1; then
-        echo "Pulling remote devbox image..."
-        docker pull ghcr.io/divsmith/devbox:latest
-    fi
+    echo "Pulling remote devbox image..."
+    docker pull ghcr.io/divsmith/devbox:latest
 fi
 
 # Always try to allocate a TTY for Claude Code since it's meant to be interactive

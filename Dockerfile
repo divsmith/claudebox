@@ -35,7 +35,7 @@ USER devusr
 ENV HOME=/home/devusr
 # Install Claude Code and uv as devusr
 RUN npm config set prefix '~/.npm-global' \
-    && npm install -g @anthropic-ai/claude-code@2.0.21 \
+    && npm install -g @anthropic-ai/claude-code@latest \
     && curl -LsSf https://astral.sh/uv/install.sh | sh \
     && rm -rf /tmp/*
 

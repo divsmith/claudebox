@@ -7,3 +7,4 @@ TODO:
 * [x] change /sandbox path to /devbox
 * [x] use image published at ghcr.io/divsmith/devbox by default, override to use local image with -l or --local flag
 * [x] Update github action to only build the image on push. Remove the scheduled update function entirely.
+* [x] update devbox script to always pull when using a remote image
