@@ -91,27 +91,29 @@ if [ ! -d "$PROJECT_DIR" ]; then
     exit 1
 fi
 
-# Generate names - use pwd to get the actual directory name
+# Generate unique names - use pwd to get the actual directory name
 DIR_NAME=$(basename "$(realpath "$PROJECT_DIR")")
 
 # Handle dot-prefixed directories by removing the leading dot for naming
 CLEAN_DIR_NAME="${DIR_NAME#.}"  # Remove leading dot if present
 if [[ "$CLEAN_DIR_NAME" == "$DIR_NAME" ]]; then
     # No dot was removed, use original name
-    CONTAINER_NAME="devbox-$DIR_NAME"
+    BASE_CONTAINER_NAME="devbox-$DIR_NAME"
 else
     # Dot was removed, use cleaned name
-    CONTAINER_NAME="devbox-$CLEAN_DIR_NAME"
+    BASE_CONTAINER_NAME="devbox-$CLEAN_DIR_NAME"
 fi
+
+# Generate unique container name with short suffix to support multiple sessions
+RANDOM_SUFFIX=$(LC_ALL=C tr -dc 'a-z' < /dev/urandom | head -c 3)
+CONTAINER_NAME="${BASE_CONTAINER_NAME}-${RANDOM_SUFFIX}"
 
 echo "Creating Claude Code session for project: $DIR_NAME"
 echo "Container name: $CONTAINER_NAME"
 echo "Project directory: $PROJECT_DIR"
 echo ""
-
-# Stop existing container if it exists
-echo "Cleaning up any existing container..."
-docker stop "$CONTAINER_NAME" 2>/dev/null || true
+echo "Tip: To list all active devbox sessions, run: docker ps --filter 'name=devbox-'"
+echo ""
 
 # Create session-specific claude.json with preferences
 SESSION_CLAUDE_JSON="$HOME/.claude_${CONTAINER_NAME}.json"
