@@ -1,59 +1,53 @@
-# Use Node.js Alpine LTS - much smaller base image
-FROM node:lts-alpine
+FROM node:22-alpine
 
+ARG GO_VERSION=1.24.7
+ARG UV_VERSION=0.11.7
+ARG COPILOT_CLI_VERSION=1.0.34
+ARG CLAUDE_CODE_VERSION=2.1.118
 
-# Install build dependencies and cleanup in single layer
 RUN apk add --no-cache \
-    curl \
-    vim \
-    python3 \
-    py3-pip \
-    sudo \
     bash \
+    ca-certificates \
+    curl \
     git \
-    && rm -rf /var/cache/apk/*
+    py3-pip \
+    python3 \
+    vim
 
-# Create non-root user first
-RUN adduser -D -s /bin/bash devusr \
-    && addgroup devusr wheel \
-    && echo 'devusr ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers
+RUN adduser -D -s /bin/bash devusr
 
-# uv will be installed later as devusr
-
-# Install Go - multi-platform support for amd64 and arm64
 ARG TARGETPLATFORM
 RUN if [ "$TARGETPLATFORM" = "linux/arm64" ]; then \
         GO_ARCH="arm64"; \
     else \
         GO_ARCH="amd64"; \
     fi \
-    && curl -LO "https://go.dev/dl/go1.24.7.linux-${GO_ARCH}.tar.gz" \
-    && tar -C /usr/local -xzf "go1.24.7.linux-${GO_ARCH}.tar.gz" \
-    && rm "go1.24.7.linux-${GO_ARCH}.tar.gz" \
-    && ln -sf /usr/local/go/bin/go /usr/bin/go
+    && curl -fsSLo "/tmp/go.tgz" "https://go.dev/dl/go${GO_VERSION}.linux-${GO_ARCH}.tar.gz" \
+    && tar -C /usr/local -xzf "/tmp/go.tgz" \
+    && rm "/tmp/go.tgz" \
+    && ln -sf /usr/local/go/bin/go /usr/local/bin/go
 
 USER devusr
 ENV HOME=/home/devusr
-# Install Claude Code and uv as devusr
-RUN npm config set prefix '~/.npm-global' \
-    && npm install -g @anthropic-ai/claude-code@latest \
-    && curl -LsSf https://astral.sh/uv/install.sh | sh \
+
+RUN npm config set prefix "$HOME/.npm-global" \
+    && npm install -g \
+        "@github/copilot@${COPILOT_CLI_VERSION}" \
+        "@anthropic-ai/claude-code@${CLAUDE_CODE_VERSION}" \
+    && curl -LsSf https://astral.sh/uv/install.sh | env UV_VERSION="${UV_VERSION}" sh \
     && rm -rf /tmp/*
 
-# Switch back to root for remaining installations
 USER root
 
-# Set PATH for all tools (using literal paths since HOME expands at runtime)
-ENV PATH="/usr/local/go/bin:/home/devusr/.local/bin:/home/devusr/.npm-global/bin:/usr/local/bin:$PATH"
+RUN ln -sf /home/devusr/.npm-global/bin/copilot /usr/local/bin/copilot \
+    && ln -sf /home/devusr/.npm-global/bin/claude /usr/local/bin/claude
 
-# Set working directory
+ENV PATH="/usr/local/go/bin:/home/devusr/.local/bin:/home/devusr/.npm-global/bin:$PATH"
+
 WORKDIR /devbox
 
-# Switch to non-root user
 USER devusr
 
-# Set bash as entrypoint to override Node.js default
 ENTRYPOINT ["/bin/bash"]
 
-# Default command
 CMD ["-c", "while true; do sleep 1000; done"]

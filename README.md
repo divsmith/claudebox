@@ -1,63 +1,94 @@
 # DevBox
 
-A containerized sandbox for running Claude Code with automatic environment management and tmux integration.
+DevBox runs coding agents inside a Docker container with your project mounted at `/devbox/<project-name>`. The default agent is GitHub Copilot CLI. Claude Code remains available as an opt-in agent path.
 
 ## Features
 
-- Docker-based environment with Node.js LTS
-- Pre-installed Claude Code CLI
-- Automatic tmux session management
-- Environment variable configuration for API access
+- Docker-based workspace with Node.js 22, Go, Python 3, Git, and `uv`
+- GitHub Copilot CLI installed by default
+- Claude Code installed as a secondary agent path
 - Automatic container cleanup on session end
+- Copilot authentication via a dedicated host-side token file instead of repeated in-container login
 
 ## Quick Start
 
-### Using the DevBox Script (Recommended)
+### 1. Create a Copilot token file
 
-The easiest way to use DevBox is with the provided launch script:
+DevBox expects a dedicated token file at `~/.config/devbox/copilot.env` by default.
+
+Create a fine-grained GitHub personal access token with the `Copilot Requests` permission, then store it like this:
 
 ```bash
-# Launch for current directory
+mkdir -p ~/.config/devbox
+chmod 700 ~/.config/devbox
+cat > ~/.config/devbox/copilot.env <<'EOF'
+COPILOT_GITHUB_TOKEN=github_pat_...
+EOF
+chmod 600 ~/.config/devbox/copilot.env
+```
+
+Classic PATs are not supported by Copilot CLI.
+
+### 2. Launch DevBox
+
+```bash
+# Launch GitHub Copilot CLI for the current directory
 ./devbox
 
-# Launch for specific project directory
+# Launch GitHub Copilot CLI for a specific project
 ./devbox ~/path/to/your/project
 
-# The script will:
-# - Create a tmux session named "claude-{project-name}"
-# - Start a Docker container with your project mounted
-# - Automatically launch Claude Code
-# - Clean up the container when you exit the session
+# Launch Claude Code explicitly
+./devbox --agent claude ~/path/to/your/project
+
+# Override the default Copilot token file location
+./devbox --copilot-token-file ~/.secrets/devbox-copilot.env
 ```
 
-### Manual Docker Usage
+The script will:
 
-1. Build the Docker image:
+- Start a container for the selected project
+- Mount the project at `/devbox/<project-name>`
+- Launch GitHub Copilot CLI by default when no `--agent` option is given
+- Inject `COPILOT_GITHUB_TOKEN` from the dedicated token file for the Copilot path
+- Clean up the container automatically when you exit
+
+## Security Model
+
+- The default Copilot flow does not require repeating `copilot login` inside each container.
+- DevBox injects `COPILOT_GITHUB_TOKEN` into the container instead of mounting broad GitHub auth state.
+- The launcher applies `--security-opt no-new-privileges:true` to the container runtime.
+- Claude-specific config is mounted only when `--agent claude` is selected.
+
+## Building Locally
+
 ```bash
-docker build --no-cache -t devbox:latest .
+docker build -t devbox:latest .
 ```
-2. Run the container:
+
+To use the local image instead of the remote GHCR image:
+
 ```bash
-docker run -d --rm --name devbox --env-file .env -v /host/volume/directory:/sandbox/project-name devbox
+./devbox --local
 ```
-3. Exec into the container:
+
+## Manual Docker Usage
+
+The launcher is the supported entrypoint because it handles session naming, project mounting, agent selection, and auth injection. If you need to run the container manually, use the same workspace mount convention:
+
 ```bash
-docker exec -it devbox /bin/sh
+docker run --rm -it \
+   --security-opt no-new-privileges:true \
+   -e COPILOT_GITHUB_TOKEN=github_pat_... \
+   -v /host/project:/devbox/project \
+   -w /devbox/project \
+   devbox:latest \
+   copilot
 ```
 
-## GitHub Actions Automation
+## Published Images
 
-This repository includes a GitHub Actions workflow that automatically monitors the `@anthropic-ai/claude-code` npm package for updates and rebuilds the Docker image when updates are detected.
+Images are published to GHCR as:
 
-The workflow:
-1. Runs every 6 hours or can be triggered manually
-2. Checks for new versions of `@anthropic-ai/claude-code` on npm
-3. If a new version is detected, it:
-   - Updates the Dockerfile with the new version
-   - Builds and publishes the Docker image to GitHub Container Registry (GHCR)
-   - Commits and pushes the updated Dockerfile to the repository
-
-Images are published to:
 - `ghcr.io/divsmith/devbox:latest`
-- `ghcr.io/divsmith/devbox:VERSION`
-- `ghcr.io/divsmith/devbox:COMMIT_SHA`
+- `ghcr.io/divsmith/devbox:<commit-sha>`

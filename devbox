@@ -1,51 +1,244 @@
 #!/bin/bash
 
-# devbox - Creates isolated Claude Code session in Docker container
-# ABOUTME: Launches Claude Code with automatic container cleanup
+# devbox - Creates isolated coding-agent sessions in Docker containers
+# ABOUTME: Launches GitHub Copilot CLI by default with automatic container cleanup
 
-set -e  # Exit on any error
+set -e
 
-# Cleanup function
+CONTAINER_NAME=""
+SESSION_CONFIG_FILE=""
+PROJECT_DIR=""
+AGENT="copilot"
+USE_LOCAL_IMAGE=false
+COPILOT_TOKEN_FILE="$HOME/.config/devbox/copilot.env"
+
 cleanup() {
     echo "Cleaning up..."
-    rm -f "$SESSION_CLAUDE_JSON" 2>/dev/null || true
+    if [ -n "$SESSION_CONFIG_FILE" ]; then
+        rm -f "$SESSION_CONFIG_FILE" 2>/dev/null || true
+    fi
     if [ -n "$CONTAINER_NAME" ]; then
         docker stop "$CONTAINER_NAME" 2>/dev/null || true
     fi
 }
 
-# Set trap for cleanup on script exit
 trap cleanup EXIT
 
-# Variables for cleanup
-SESSION_CLAUDE_JSON=""
-CONTAINER_NAME=""
-
-# Function to show usage
 usage() {
     echo "Usage: devbox [options] [project-directory]"
-    echo "  Creates a Docker container running Claude Code"
+    echo "  Creates a Docker container running a coding agent"
     echo "  Container is automatically stopped when you exit"
     echo "  If no directory specified, uses current directory"
     echo ""
     echo "Options:"
-    echo "  -l, --local    Use local devbox:latest image instead of remote"
+    echo "  -a, --agent AGENT           Agent to launch (default: copilot)"
+    echo "                             Supported: copilot, claude"
+    echo "      --copilot-token-file    Path to a file containing COPILOT_GITHUB_TOKEN"
+    echo "  -l, --local                 Use local devbox:latest image instead of remote"
+    echo "  -h, --help                  Show this help message"
     echo ""
     echo "Examples:"
-    echo "  devbox ~/code/myproject"
-    echo "  devbox ."
     echo "  devbox"
-    echo "  devbox --local ~/code/myproject"
-    echo "  devbox -l"
+    echo "  devbox --agent claude ~/code/myproject"
+    echo "  devbox --copilot-token-file ~/.config/devbox/copilot.env"
+    echo "  devbox --local ."
     exit 1
 }
 
-# Default values
-USE_LOCAL_IMAGE=false
+expand_path() {
+    local path="$1"
 
-# Parse arguments
+    case "$path" in
+        ~)
+            printf '%s\n' "$HOME"
+            ;;
+        ~/*)
+            printf '%s\n' "$HOME/${path#~/}"
+            ;;
+        *)
+            printf '%s\n' "$path"
+            ;;
+    esac
+}
+
+ensure_mount_source() {
+    local source_path="$1"
+    local description="$2"
+
+    if [ ! -e "$source_path" ]; then
+        echo "Creating missing $description: $source_path"
+        mkdir -p "$source_path" 2>/dev/null || touch "$source_path" 2>/dev/null || {
+            echo "Warning: Could not create $source_path, mount will be skipped"
+        }
+    fi
+}
+
+create_copilot_token_template() {
+    local token_file="$1"
+    local token_dir
+
+    token_dir=$(dirname "$token_file")
+    mkdir -p "$token_dir"
+
+    if [ ! -f "$token_file" ]; then
+        umask 077
+        cat > "$token_file" << 'EOF'
+# Fine-grained GitHub PAT with the Copilot Requests permission.
+COPILOT_GITHUB_TOKEN=
+EOF
+    fi
+
+    chmod 600 "$token_file" 2>/dev/null || true
+}
+
+read_secret_value() {
+    local file_path="$1"
+    local key="$2"
+    local line
+
+    while IFS= read -r line || [ -n "$line" ]; do
+        line="${line%$'\r'}"
+        case "$line" in
+            ''|\#*)
+                continue
+                ;;
+            "$key="*)
+                printf '%s\n' "${line#*=}"
+                return 0
+                ;;
+        esac
+    done < "$file_path"
+
+    return 1
+}
+
+configure_claude_preferences() {
+    local config_file="$1"
+
+    if [ -f "$HOME/.claude.json" ]; then
+        echo "Creating session-specific Claude configuration..."
+        cp "$HOME/.claude.json" "$config_file"
+
+        echo "Configuring Claude preferences (dark theme, vim mode)..."
+
+        if command -v python3 >/dev/null 2>&1; then
+            python3 << EOF
+import json
+
+try:
+    with open('$config_file', 'r') as f:
+        config = json.load(f)
+except Exception:
+    config = {}
+
+config['theme'] = 'dark'
+config['vimMode'] = True
+
+with open('$config_file', 'w') as f:
+    json.dump(config, f, indent=2)
+EOF
+        elif command -v jq >/dev/null 2>&1; then
+            jq '. + {theme: "dark", vimMode: true}' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
+        else
+            echo '{"theme": "dark", "vimMode": true}' > "$config_file"
+        fi
+    else
+        echo "Creating default Claude configuration with preferences..."
+        cat > "$config_file" << 'EOF'
+{
+  "theme": "dark",
+  "vimMode": true
+}
+EOF
+    fi
+}
+
+configure_copilot_auth() {
+    local token
+
+    COPILOT_TOKEN_FILE=$(expand_path "$COPILOT_TOKEN_FILE")
+
+    if [ ! -f "$COPILOT_TOKEN_FILE" ]; then
+        create_copilot_token_template "$COPILOT_TOKEN_FILE"
+        echo "Error: Copilot token file not found."
+        echo "Populate $COPILOT_TOKEN_FILE with a fine-grained GitHub PAT:"
+        echo "  COPILOT_GITHUB_TOKEN=github_pat_..."
+        echo "The token must include the Copilot Requests permission."
+        exit 1
+    fi
+
+    token=$(read_secret_value "$COPILOT_TOKEN_FILE" "COPILOT_GITHUB_TOKEN" || true)
+
+    if [ -z "$token" ]; then
+        echo "Error: COPILOT_GITHUB_TOKEN is missing or empty in $COPILOT_TOKEN_FILE"
+        exit 1
+    fi
+
+    if [[ "$token" == ghp_* ]]; then
+        echo "Error: Classic GitHub PATs are not supported by Copilot CLI."
+        echo "Use a fine-grained PAT with the Copilot Requests permission instead."
+        exit 1
+    fi
+
+    DOCKER_ARGS+=(--env "COPILOT_GITHUB_TOKEN=$token")
+}
+
+configure_claude_agent() {
+    SESSION_CONFIG_FILE="$HOME/.claude_${CONTAINER_NAME}.json"
+    configure_claude_preferences "$SESSION_CONFIG_FILE"
+
+    ensure_mount_source "$HOME/.claude" "Claude directory"
+    ensure_mount_source "$SESSION_CONFIG_FILE" "Claude preferences file"
+
+    DOCKER_ARGS+=(
+        --mount "type=bind,source=$HOME/.claude,target=/home/devusr/.claude,readonly"
+        --mount "type=bind,source=$SESSION_CONFIG_FILE,target=/home/devusr/.claude.json,readonly"
+    )
+
+    AGENT_DISPLAY_NAME="Claude Code"
+    AGENT_COMMAND=(claude)
+}
+
+configure_copilot_agent() {
+    configure_copilot_auth
+    AGENT_DISPLAY_NAME="GitHub Copilot CLI"
+    AGENT_COMMAND=(copilot)
+}
+
+configure_agent() {
+    case "$AGENT" in
+        copilot)
+            configure_copilot_agent
+            ;;
+        claude)
+            configure_claude_agent
+            ;;
+        *)
+            echo "Error: Unsupported agent '$AGENT'"
+            echo "Supported agents: copilot, claude"
+            exit 1
+            ;;
+    esac
+}
+
 while [[ $# -gt 0 ]]; do
     case $1 in
+        -a|--agent)
+            if [ -z "$2" ]; then
+                echo "Error: --agent requires a value"
+                usage
+            fi
+            AGENT="$2"
+            shift 2
+            ;;
+        --copilot-token-file)
+            if [ -z "$2" ]; then
+                echo "Error: --copilot-token-file requires a value"
+                usage
+            fi
+            COPILOT_TOKEN_FILE="$2"
+            shift 2
+            ;;
         -l|--local)
             USE_LOCAL_IMAGE=true
             shift
@@ -69,128 +262,63 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-# Set default project directory if not specified
 if [ -z "$PROJECT_DIR" ]; then
     PROJECT_DIR="$(pwd)"
 fi
 
-# Convert to absolute path and resolve any . or .. components
 if [[ "$PROJECT_DIR" != /* ]]; then
     PROJECT_DIR="$(pwd)/$PROJECT_DIR"
 fi
 
-# Remove trailing slashes and resolve to get the real directory name
 PROJECT_DIR="${PROJECT_DIR%/}"
 if [[ "$PROJECT_DIR" == "." ]]; then
     PROJECT_DIR="$(pwd)"
 fi
 
-# Validate project directory
 if [ ! -d "$PROJECT_DIR" ]; then
     echo "Error: Directory '$PROJECT_DIR' does not exist"
     exit 1
 fi
 
-# Generate unique names - use pwd to get the actual directory name
 DIR_NAME=$(basename "$(realpath "$PROJECT_DIR")")
 
-# Handle dot-prefixed directories by removing the leading dot for naming
-CLEAN_DIR_NAME="${DIR_NAME#.}"  # Remove leading dot if present
+CLEAN_DIR_NAME="${DIR_NAME#.}"
 if [[ "$CLEAN_DIR_NAME" == "$DIR_NAME" ]]; then
-    # No dot was removed, use original name
     BASE_CONTAINER_NAME="devbox-$DIR_NAME"
 else
-    # Dot was removed, use cleaned name
     BASE_CONTAINER_NAME="devbox-$CLEAN_DIR_NAME"
 fi
 
-# Generate unique container name with short suffix to support multiple sessions
 RANDOM_SUFFIX=$(LC_ALL=C tr -dc 'a-z' < /dev/urandom | head -c 3)
 CONTAINER_NAME="${BASE_CONTAINER_NAME}-${RANDOM_SUFFIX}"
 
-echo "Creating Claude Code session for project: $DIR_NAME"
+DOCKER_ARGS=(
+    --rm
+    -it
+    --entrypoint=
+    --name "$CONTAINER_NAME"
+    --security-opt no-new-privileges:true
+    --mount "type=bind,source=$PROJECT_DIR,target=/devbox/$DIR_NAME"
+    --env-file "$HOME/.devbox_env"
+    -w "/devbox/$DIR_NAME"
+)
+
+ensure_mount_source "$HOME/.devbox_env" "DevBox environment file"
+configure_agent
+
+echo "Creating $AGENT_DISPLAY_NAME session for project: $DIR_NAME"
 echo "Container name: $CONTAINER_NAME"
 echo "Project directory: $PROJECT_DIR"
+if [ "$AGENT" = "copilot" ]; then
+    echo "Copilot token file: $COPILOT_TOKEN_FILE"
+fi
 echo ""
 echo "Tip: To list all active devbox sessions, run: docker ps --filter 'name=devbox-'"
 echo ""
 
-# Create session-specific claude.json with preferences
-SESSION_CLAUDE_JSON="$HOME/.claude_${CONTAINER_NAME}.json"
-configure_claude_preferences() {
-    local config_file="$1"
-
-    # Create session-specific configuration with preferences
-    if [ -f "$HOME/.claude.json" ]; then
-        echo "Creating session-specific Claude configuration..."
-        cp "$HOME/.claude.json" "$config_file"
-
-        # Add or update preferences while preserving existing config
-        echo "Configuring Claude preferences (dark theme, vim mode)..."
-
-        # Use a Python one-liner to merge JSON preferences (more reliable than jq)
-        if command -v python3 >/dev/null 2>&1; then
-            python3 << EOF
-import json
-import sys
-
-try:
-    with open('$config_file', 'r') as f:
-        config = json.load(f)
-except:
-    config = {}
-
-# Ensure preferences are set
-config['theme'] = 'dark'
-config['vimMode'] = True
-
-with open('$config_file', 'w') as f:
-    json.dump(config, f, indent=2)
-EOF
-        elif command -v jq >/dev/null 2>&1; then
-            # Fallback to jq if Python not available
-            jq '. + {theme: "dark", vimMode: true}' "$config_file" > "${config_file}.tmp" && mv "${config_file}.tmp" "$config_file"
-        else
-            # Last resort: create simple config
-            echo '{"theme": "dark", "vimMode": true}' > "$config_file"
-        fi
-    else
-        # Create default session-specific config with preferences
-        echo "Creating default Claude configuration with preferences..."
-        cat > "$config_file" << 'EOF'
-{
-  "theme": "dark",
-  "vimMode": true
-}
-EOF
-    fi
-}
-
-configure_claude_preferences "$SESSION_CLAUDE_JSON"
-
-# Ensure mount sources exist before attempting to mount them
-ensure_mount_source() {
-    local source_path="$1"
-    local description="$2"
-
-    if [ ! -e "$source_path" ]; then
-        echo "Creating missing $description: $source_path"
-        mkdir -p "$source_path" 2>/dev/null || touch "$source_path" 2>/dev/null || {
-            echo "Warning: Could not create $source_path, mount will be skipped"
-        }
-    fi
-}
-
-# Ensure all mount sources exist
-ensure_mount_source "$HOME/.claude" "Claude directory"
-ensure_mount_source "$SESSION_CLAUDE_JSON" "Claude preferences file"
-ensure_mount_source "$HOME/.devbox_env" "DevBox environment file"
-
-# Determine which image to use
 if [ "$USE_LOCAL_IMAGE" = true ]; then
     DOCKER_IMAGE="devbox:latest"
     echo "Using local devbox image..."
-
 else
     DOCKER_IMAGE="ghcr.io/divsmith/devbox:latest"
     echo "Using remote devbox image from ghcr.io/divsmith/devbox:latest..."
@@ -198,23 +326,9 @@ else
     docker pull ghcr.io/divsmith/devbox:latest
 fi
 
-# Always try to allocate a TTY for Claude Code since it's meant to be interactive
-TTY_FLAGS="-it"
+echo "Starting Docker container and launching $AGENT_DISPLAY_NAME..."
 
-# Start container and launch Claude Code directly
-echo "Starting Docker container and launching Claude Code..."
-
-# Start the container directly
 docker run \
-    --rm \
-    $TTY_FLAGS \
-    --entrypoint="" \
-    --name "$CONTAINER_NAME" \
-    -v "$PROJECT_DIR":/devbox/"$DIR_NAME" \
-    --mount type=bind,source=$HOME/.claude,target=/home/devusr/.claude \
-    --mount type=bind,source=$SESSION_CLAUDE_JSON,target=/home/devusr/.claude.json \
-    --mount type=bind,source=$HOME/.devbox_env,target=/home/devusr/.devbox_env \
-    --env-file $HOME/.devbox_env \
-    -w "/devbox/$DIR_NAME" \
-    $DOCKER_IMAGE \
-    claude --dangerously-skip-permissions
+    "${DOCKER_ARGS[@]}" \
+    "$DOCKER_IMAGE" \
+    "${AGENT_COMMAND[@]}"
